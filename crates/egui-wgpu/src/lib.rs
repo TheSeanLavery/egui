@@ -24,7 +24,10 @@ mod renderer;
 mod setup;
 
 pub use renderer::*;
-pub use setup::{EguiDisplayHandle, NativeAdapterSelectorMethod, WgpuSetup, WgpuSetupCreateNew, WgpuSetupExisting};
+pub use setup::{
+    EguiDisplayHandle, NativeAdapterSelectorMethod, WgpuSetup, WgpuSetupCreateNew,
+    WgpuSetupExisting,
+};
 
 /// Helpers for capturing screenshots of the UI.
 #[cfg(feature = "capture")]
@@ -191,7 +194,11 @@ async fn request_adapter(
         })?;
 
     if 1 < available_adapters.len() {
-        log::info!("There are {} available wgpu adapters: {}", available_adapters.len(), describe_adapters(available_adapters));
+        log::info!(
+            "There are {} available wgpu adapters: {}",
+            available_adapters.len(),
+            describe_adapters(available_adapters)
+        );
     }
 
     Ok(adapter)
@@ -213,8 +220,11 @@ impl RenderState {
         // This is always an empty list on web.
         #[cfg(not(target_arch = "wasm32"))]
         let available_adapters = {
-            let backends =
-                if let WgpuSetup::CreateNew(create_new) = &config.wgpu_setup { create_new.instance_descriptor.backends } else { wgpu::Backends::all() };
+            let backends = if let WgpuSetup::CreateNew(create_new) = &config.wgpu_setup {
+                create_new.instance_descriptor.backends
+            } else {
+                wgpu::Backends::all()
+            };
 
             instance.enumerate_adapters(backends).await
         };
@@ -234,31 +244,53 @@ impl RenderState {
                     }
                     #[cfg(not(target_arch = "wasm32"))]
                     if let Some(native_adapter_selector) = _native_adapter_selector {
-                        native_adapter_selector(&available_adapters, compatible_surface).map_err(WgpuError::CustomNativeAdapterSelectionError)
+                        native_adapter_selector(&available_adapters, compatible_surface)
+                            .map_err(WgpuError::CustomNativeAdapterSelectionError)
                     } else {
-                        request_adapter(instance, power_preference, compatible_surface, &available_adapters).await
+                        request_adapter(
+                            instance,
+                            power_preference,
+                            compatible_surface,
+                            &available_adapters,
+                        )
+                        .await
                     }
                 }?;
 
                 let (device, queue) = {
                     profiling::scope!("request_device");
-                    adapter.request_device(&(*device_descriptor)(&adapter)).await?
+                    adapter
+                        .request_device(&(*device_descriptor)(&adapter))
+                        .await?
                 };
 
                 (instance.clone(), adapter, device, queue)
             }
-            WgpuSetup::Existing(WgpuSetupExisting { instance, adapter, device, queue }) => (instance, adapter, device, queue),
+            WgpuSetup::Existing(WgpuSetupExisting {
+                instance,
+                adapter,
+                device,
+                queue,
+            }) => (instance, adapter, device, queue),
         };
 
         log_adapter_info(&adapter.get_info());
 
         let surface_formats = {
             profiling::scope!("get_capabilities");
-            compatible_surface.map_or_else(|| vec![wgpu::TextureFormat::Rgba8Unorm], |s| s.get_capabilities(&adapter).formats)
+            compatible_surface.map_or_else(
+                || vec![wgpu::TextureFormat::Rgba8Unorm],
+                |s| s.get_capabilities(&adapter).formats,
+            )
         };
         let caps = compatible_surface.map(|s| s.get_capabilities(&adapter));
-        let (target_format, output_color_space) = select_output(config.surface.hdr, caps.as_ref(), &surface_formats)?;
-        let display_hdr_info = Arc::new(RwLock::new(compatible_surface.map(|s| s.display_hdr_info(&adapter)).unwrap_or_default()));
+        let (target_format, output_color_space) =
+            select_output(config.surface.hdr, caps.as_ref(), &surface_formats)?;
+        let display_hdr_info = Arc::new(RwLock::new(
+            compatible_surface
+                .map(|s| s.display_hdr_info(&adapter))
+                .unwrap_or_default(),
+        ));
 
         let renderer = Renderer::new(&device, target_format, options);
 
@@ -287,7 +319,11 @@ fn describe_adapters(adapters: &[wgpu::Adapter]) -> String {
     } else if adapters.len() == 1 {
         adapter_info_summary(&adapters[0].get_info())
     } else {
-        adapters.iter().map(|a| format!("{{{}}}", adapter_info_summary(&a.get_info()))).collect::<Vec<_>>().join(", ")
+        adapters
+            .iter()
+            .map(|a| format!("{{{}}}", adapter_info_summary(&a.get_info())))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -334,7 +370,8 @@ pub struct WgpuConfiguration {
     /// [`wgpu::CurrentSurfaceTexture::Suboptimal`], egui uses the frame as-is and
     /// defers surface reconfiguration to the next frame — the callback is not invoked
     /// in that case either.
-    pub on_surface_status: Arc<dyn Fn(&wgpu::CurrentSurfaceTexture) -> SurfaceErrorAction + Send + Sync>,
+    pub on_surface_status:
+        Arc<dyn Fn(&wgpu::CurrentSurfaceTexture) -> SurfaceErrorAction + Send + Sync>,
 }
 
 #[test]
@@ -345,8 +382,16 @@ fn wgpu_config_impl_send_sync() {
 
 impl core::fmt::Debug for WgpuConfiguration {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let Self { surface, wgpu_setup, on_surface_status: _, on_hdr_capture: _ } = self;
-        f.debug_struct("WgpuConfiguration").field("surface", &surface).field("wgpu_setup", &wgpu_setup).finish_non_exhaustive()
+        let Self {
+            surface,
+            wgpu_setup,
+            on_surface_status: _,
+            on_hdr_capture: _,
+        } = self;
+        f.debug_struct("WgpuConfiguration")
+            .field("surface", &surface)
+            .field("wgpu_setup", &wgpu_setup)
+            .finish_non_exhaustive()
     }
 }
 
@@ -398,14 +443,22 @@ impl Default for WgpuConfiguration {
 ///
 /// # Errors
 /// Returns [`WgpuError::NoSurfaceFormatsAvailable`] if the given list of formats is empty.
-pub fn preferred_framebuffer_format(formats: &[wgpu::TextureFormat]) -> Result<wgpu::TextureFormat, WgpuError> {
+pub fn preferred_framebuffer_format(
+    formats: &[wgpu::TextureFormat],
+) -> Result<wgpu::TextureFormat, WgpuError> {
     for &format in formats {
-        if matches!(format, wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm) {
+        if matches!(
+            format,
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
+        ) {
             return Ok(format);
         }
     }
 
-    formats.first().copied().ok_or(WgpuError::NoSurfaceFormatsAvailable)
+    formats
+        .first()
+        .copied()
+        .ok_or(WgpuError::NoSurfaceFormatsAvailable)
 }
 
 /// Take's epi's depth/stencil bits and returns the corresponding wgpu format.
@@ -473,7 +526,12 @@ pub fn adapter_info_summary(info: &wgpu::AdapterInfo) -> String {
     if *vendor != 0 {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            write!(summary, ", vendor: {} (0x{vendor:04X})", parse_vendor_id(*vendor)).ok();
+            write!(
+                summary,
+                ", vendor: {} (0x{vendor:04X})",
+                parse_vendor_id(*vendor)
+            )
+            .ok();
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -487,9 +545,17 @@ pub fn adapter_info_summary(info: &wgpu::AdapterInfo) -> String {
         write!(summary, ", pci_bus_id: {device_pci_bus_id:?}").ok();
     }
     if *subgroup_min_size != 0 || *subgroup_max_size != 0 {
-        write!(summary, ", subgroup_size: {subgroup_min_size}..={subgroup_max_size}").ok();
+        write!(
+            summary,
+            ", subgroup_size: {subgroup_min_size}..={subgroup_max_size}"
+        )
+        .ok();
     }
-    write!(summary, ", transient_saves_memory: {transient_saves_memory:?}").ok();
+    write!(
+        summary,
+        ", transient_saves_memory: {transient_saves_memory:?}"
+    )
+    .ok();
     write!(summary, ", limit_bucket: {limit_bucket:?}").ok();
 
     summary
@@ -518,10 +584,21 @@ pub fn select_output(
     caps: Option<&wgpu::SurfaceCapabilities>,
     formats: &[wgpu::TextureFormat],
 ) -> Result<(wgpu::TextureFormat, wgpu::SurfaceColorSpace), WgpuError> {
-    if hdr && caps.is_some_and(|c| c.color_spaces(wgpu::TextureFormat::Rgba16Float).contains(wgpu::SurfaceColorSpaces::EXTENDED_SRGB)) {
-        Ok((wgpu::TextureFormat::Rgba16Float, wgpu::SurfaceColorSpace::ExtendedSrgb))
+    if hdr
+        && caps.is_some_and(|c| {
+            c.color_spaces(wgpu::TextureFormat::Rgba16Float)
+                .contains(wgpu::SurfaceColorSpaces::EXTENDED_SRGB)
+        })
+    {
+        Ok((
+            wgpu::TextureFormat::Rgba16Float,
+            wgpu::SurfaceColorSpace::ExtendedSrgb,
+        ))
     } else {
-        Ok((preferred_framebuffer_format(formats)?, wgpu::SurfaceColorSpace::Srgb))
+        Ok((
+            preferred_framebuffer_format(formats)?,
+            wgpu::SurfaceColorSpace::Srgb,
+        ))
     }
 }
 
@@ -532,11 +609,26 @@ mod hdr_tests {
     fn hdr_requires_supported_format_and_encoding() {
         let formats = [wgpu::TextureFormat::Bgra8Unorm];
         let mut caps = wgpu::SurfaceCapabilities::default();
-        assert_eq!(select_output(true, Some(&caps), &formats).unwrap().0, formats[0]);
+        assert_eq!(
+            select_output(true, Some(&caps), &formats).unwrap().0,
+            formats[0]
+        );
         caps.format_capabilities
-            .push(wgpu::SurfaceFormatCapabilities { format: wgpu::TextureFormat::Rgba16Float, color_spaces: wgpu::SurfaceColorSpaces::EXTENDED_SRGB });
-        assert_eq!(select_output(true, Some(&caps), &formats).unwrap(), (wgpu::TextureFormat::Rgba16Float, wgpu::SurfaceColorSpace::ExtendedSrgb));
-        assert_eq!(select_output(false, Some(&caps), &formats).unwrap().0, formats[0]);
+            .push(wgpu::SurfaceFormatCapabilities {
+                format: wgpu::TextureFormat::Rgba16Float,
+                color_spaces: wgpu::SurfaceColorSpaces::EXTENDED_SRGB,
+            });
+        assert_eq!(
+            select_output(true, Some(&caps), &formats).unwrap(),
+            (
+                wgpu::TextureFormat::Rgba16Float,
+                wgpu::SurfaceColorSpace::ExtendedSrgb
+            )
+        );
+        assert_eq!(
+            select_output(false, Some(&caps), &formats).unwrap().0,
+            formats[0]
+        );
         assert!(select_output(true, None, &[]).is_err());
     }
 }

@@ -58,7 +58,12 @@ impl Painter {
     /// [`set_window()`](Self::set_window) once you have
     /// a [`winit::window::Window`] with a valid `.raw_window_handle()`
     /// associated.
-    pub async fn new(context: Context, config: WgpuConfiguration, support_transparent_backbuffer: bool, options: RendererOptions) -> Self {
+    pub async fn new(
+        context: Context,
+        config: WgpuConfiguration,
+        support_transparent_backbuffer: bool,
+        options: RendererOptions,
+    ) -> Self {
         let (capture_tx, capture_rx) = capture_channel();
         let instance = config.wgpu_setup.new_instance().await;
 
@@ -88,16 +93,27 @@ impl Painter {
         self.render_state.clone()
     }
 
-    fn configure_surface(surface_state: &SurfaceState, render_state: &RenderState, config: &SurfaceConfig) {
+    fn configure_surface(
+        surface_state: &SurfaceState,
+        render_state: &RenderState,
+        config: &SurfaceConfig,
+    ) {
         profiling::function_scope!();
 
-        let SurfaceConfig { present_mode, desired_maximum_frame_latency, hdr: _ } = *config;
+        let SurfaceConfig {
+            present_mode,
+            desired_maximum_frame_latency,
+            hdr: _,
+        } = *config;
 
         // Transaction presentation can hold a drawable during AppKit live resize. Keep the
         // configured low-latency path normally, but use three Metal drawables while resizing.
         #[cfg(all(target_os = "macos", feature = "macos-window-resize-jitter-fix"))]
-        let desired_maximum_frame_latency =
-            if surface_state.resizing { Some(desired_maximum_frame_latency.unwrap_or(2).max(2)) } else { desired_maximum_frame_latency };
+        let desired_maximum_frame_latency = if surface_state.resizing {
+            Some(desired_maximum_frame_latency.unwrap_or(2).max(2))
+        } else {
+            desired_maximum_frame_latency
+        };
 
         let width = surface_state.width;
         let height = surface_state.height;
@@ -109,14 +125,19 @@ impl Painter {
             present_mode,
             alpha_mode: surface_state.alpha_mode,
             view_formats: vec![render_state.target_format],
-            ..surface_state.surface.get_default_config(&render_state.adapter, width, height).expect("The surface isn't supported by this adapter")
+            ..surface_state
+                .surface
+                .get_default_config(&render_state.adapter, width, height)
+                .expect("The surface isn't supported by this adapter")
         };
 
         if let Some(desired_maximum_frame_latency) = desired_maximum_frame_latency {
             surf_config.desired_maximum_frame_latency = desired_maximum_frame_latency;
         }
 
-        surface_state.surface.configure(&render_state.device, &surf_config);
+        surface_state
+            .surface
+            .configure(&render_state.device, &surf_config);
     }
 
     /// Drop the existing [`wgpu::Surface`] for `viewport_id` and create a fresh one for the
@@ -124,7 +145,11 @@ impl Painter {
     ///
     /// Used to recover from [`wgpu::CurrentSurfaceTexture::Lost`], where reconfiguring the
     /// existing surface object cannot recover.
-    fn recreate_surface(&mut self, viewport_id: ViewportId, window: &Arc<winit::window::Window>) -> Result<(), crate::WgpuError> {
+    fn recreate_surface(
+        &mut self,
+        viewport_id: ViewportId,
+        window: &Arc<winit::window::Window>,
+    ) -> Result<(), crate::WgpuError> {
         profiling::function_scope!();
 
         let Some(old_state) = self.surfaces.remove(&viewport_id) else {
@@ -132,7 +157,13 @@ impl Painter {
         };
 
         let surface = self.instance.create_surface(Arc::clone(window))?;
-        self.install_surface(surface, viewport_id, old_state.width, old_state.height, old_state.resizing);
+        self.install_surface(
+            surface,
+            viewport_id,
+            old_state.width,
+            old_state.height,
+            old_state.resizing,
+        );
         Ok(())
     }
 
@@ -157,7 +188,11 @@ impl Painter {
     ///
     /// # Errors
     /// If the provided wgpu configuration does not match an available device.
-    pub async fn set_window(&mut self, viewport_id: ViewportId, window: Option<Arc<winit::window::Window>>) -> Result<(), crate::WgpuError> {
+    pub async fn set_window(
+        &mut self,
+        viewport_id: ViewportId,
+        window: Option<Arc<winit::window::Window>>,
+    ) -> Result<(), crate::WgpuError> {
         profiling::scope!("Painter::set_window"); // profile_function gives bad names for async functions
 
         if let Some(window) = window {
@@ -179,13 +214,20 @@ impl Painter {
     ///
     /// # Safety
     /// The user is responsible for ensuring that the window is alive for as long as it is set.
-    pub async unsafe fn set_window_unsafe(&mut self, viewport_id: ViewportId, window: Option<&winit::window::Window>) -> Result<(), crate::WgpuError> {
+    pub async unsafe fn set_window_unsafe(
+        &mut self,
+        viewport_id: ViewportId,
+        window: Option<&winit::window::Window>,
+    ) -> Result<(), crate::WgpuError> {
         profiling::scope!("Painter::set_window_unsafe"); // profile_function gives bad names for async functions
 
         if let Some(window) = window {
             let size = window.inner_size();
             if !self.surfaces.contains_key(&viewport_id) {
-                let surface = unsafe { self.instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window)?)? };
+                let surface = unsafe {
+                    self.instance
+                        .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(&window)?)?
+                };
                 self.add_surface(surface, viewport_id, size).await?;
             }
         } else {
@@ -202,7 +244,9 @@ impl Painter {
         size: winit::dpi::PhysicalSize<u32>,
     ) -> Result<(), crate::WgpuError> {
         if self.render_state.is_none() {
-            let render_state = RenderState::create(&self.config, &self.instance, Some(&surface), self.options).await?;
+            let render_state =
+                RenderState::create(&self.config, &self.instance, Some(&surface), self.options)
+                    .await?;
             self.render_state = Some(render_state);
         }
         self.install_surface(surface, viewport_id, size.width, size.height, false);
@@ -213,26 +257,51 @@ impl Painter {
     ///
     /// Render state must already be initialised before calling this.
     // NOTE: The same assumption is already required by `resize_and_generate_depth_texture_view_and_msaa_view`.
-    fn install_surface(&mut self, surface: wgpu::Surface<'static>, viewport_id: ViewportId, width: u32, height: u32, resizing: bool) {
+    fn install_surface(
+        &mut self,
+        surface: wgpu::Surface<'static>,
+        viewport_id: ViewportId,
+        width: u32,
+        height: u32,
+        resizing: bool,
+    ) {
         let alpha_mode = {
             // Panic: We use the same failure mode as `resize_and_generate_depth_texture_view_and_msaa_view`
-            let render_state = self.render_state.as_ref().expect("install_surface called before render_state initialization");
+            let render_state = self
+                .render_state
+                .as_ref()
+                .expect("install_surface called before render_state initialization");
             if self.support_transparent_backbuffer {
-                let supported_alpha_modes = surface.get_capabilities(&render_state.adapter).alpha_modes;
+                let supported_alpha_modes =
+                    surface.get_capabilities(&render_state.adapter).alpha_modes;
                 // Prefer pre multiplied over post multiplied!
                 if supported_alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
                     wgpu::CompositeAlphaMode::PreMultiplied
-                } else if supported_alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
+                } else if supported_alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+                {
                     wgpu::CompositeAlphaMode::PostMultiplied
                 } else {
-                    log::warn!("Transparent window was requested, but the active wgpu surface does not support a `CompositeAlphaMode` with transparency.");
+                    log::warn!(
+                        "Transparent window was requested, but the active wgpu surface does not support a `CompositeAlphaMode` with transparency."
+                    );
                     wgpu::CompositeAlphaMode::Auto
                 }
             } else {
                 wgpu::CompositeAlphaMode::Auto
             }
         };
-        self.surfaces.insert(viewport_id, SurfaceState { surface, width, height, alpha_mode, resizing, needs_reconfigure: false, needs_recreate: false });
+        self.surfaces.insert(
+            viewport_id,
+            SurfaceState {
+                surface,
+                width,
+                height,
+                alpha_mode,
+                resizing,
+                needs_reconfigure: false,
+                needs_recreate: false,
+            },
+        );
         let Some(width) = NonZeroU32::new(width) else {
             log::debug!("The window width was zero; skipping generate textures");
             return;
@@ -250,10 +319,17 @@ impl Painter {
     /// at least once, since the underlying device and render state are initialized lazily
     /// once we have a window (that may determine the choice of adapter/device).
     pub fn max_texture_side(&self) -> Option<usize> {
-        self.render_state.as_ref().map(|rs| rs.device.limits().max_texture_dimension_2d as usize)
+        self.render_state
+            .as_ref()
+            .map(|rs| rs.device.limits().max_texture_dimension_2d as usize)
     }
 
-    fn resize_and_generate_depth_texture_view_and_msaa_view(&mut self, viewport_id: ViewportId, width_in_pixels: NonZeroU32, height_in_pixels: NonZeroU32) {
+    fn resize_and_generate_depth_texture_view_and_msaa_view(
+        &mut self,
+        viewport_id: ViewportId,
+        width_in_pixels: NonZeroU32,
+        height_in_pixels: NonZeroU32,
+    ) {
         profiling::function_scope!();
 
         let width = width_in_pixels.get();
@@ -274,19 +350,27 @@ impl Painter {
                     .device
                     .create_texture(&wgpu::TextureDescriptor {
                         label: Some("egui_depth_texture"),
-                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
                         mip_level_count: 1,
                         sample_count: self.options.msaa_samples.max(1),
                         dimension: wgpu::TextureDimension::D2,
                         format: depth_format,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
                         view_formats: &[depth_format],
                     })
                     .create_view(&wgpu::TextureViewDescriptor::default()),
             );
         }
 
-        if let Some(render_state) = (self.options.msaa_samples > 1).then_some(self.render_state.as_ref()).flatten() {
+        if let Some(render_state) = (self.options.msaa_samples > 1)
+            .then_some(self.render_state.as_ref())
+            .flatten()
+        {
             let texture_format = render_state.target_format;
             self.msaa_texture_view.insert(
                 viewport_id,
@@ -294,7 +378,11 @@ impl Painter {
                     .device
                     .create_texture(&wgpu::TextureDescriptor {
                         label: Some("egui_msaa_texture"),
-                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
                         mip_level_count: 1,
                         sample_count: self.options.msaa_samples.max(1),
                         dimension: wgpu::TextureDimension::D2,
@@ -319,9 +407,13 @@ impl Painter {
         };
         if state.resizing == resizing {
             if resizing {
-                log::debug!("Painter::on_window_resize_state_change() redundant call while resizing");
+                log::debug!(
+                    "Painter::on_window_resize_state_change() redundant call while resizing"
+                );
             } else {
-                log::debug!("Painter::on_window_resize_state_change() redundant call after resizing");
+                log::debug!(
+                    "Painter::on_window_resize_state_change() redundant call after resizing"
+                );
             }
             return;
         }
@@ -340,8 +432,14 @@ impl Painter {
             // SAFETY: `as_hal::<Metal>()` returns `None` unless this surface is backed by wgpu's
             // Metal backend.
             unsafe {
-                if let (Some(render_state), Some(hal_surface)) = (self.render_state.as_ref(), state.surface.as_hal::<wgpu::hal::api::Metal>()) {
-                    hal_surface.render_layer().lock().setPresentsWithTransaction(resizing);
+                if let (Some(render_state), Some(hal_surface)) = (
+                    self.render_state.as_ref(),
+                    state.surface.as_hal::<wgpu::hal::api::Metal>(),
+                ) {
+                    hal_surface
+                        .render_layer()
+                        .lock()
+                        .setPresentsWithTransaction(resizing);
 
                     Self::configure_surface(state, render_state, &self.config.surface);
                 }
@@ -349,13 +447,24 @@ impl Painter {
         }
     }
 
-    pub fn on_window_resized(&mut self, viewport_id: ViewportId, width_in_pixels: NonZeroU32, height_in_pixels: NonZeroU32) {
+    pub fn on_window_resized(
+        &mut self,
+        viewport_id: ViewportId,
+        width_in_pixels: NonZeroU32,
+        height_in_pixels: NonZeroU32,
+    ) {
         profiling::function_scope!();
 
         if self.surfaces.contains_key(&viewport_id) {
-            self.resize_and_generate_depth_texture_view_and_msaa_view(viewport_id, width_in_pixels, height_in_pixels);
+            self.resize_and_generate_depth_texture_view_and_msaa_view(
+                viewport_id,
+                width_in_pixels,
+                height_in_pixels,
+            );
         } else {
-            log::warn!("Ignoring window resize notification with no surface created via Painter::set_window()");
+            log::warn!(
+                "Ignoring window resize notification with no surface created via Painter::set_window()"
+            );
         }
     }
 
@@ -406,7 +515,10 @@ impl Painter {
         // If the previous frame produced `CurrentSurfaceTexture::Lost`, the action match
         // below set `needs_recreate`. Recreate the surface now, before re-borrowing
         // `self.render_state` / `self.surfaces` for the rest of the paint.
-        if self.surfaces.get(&viewport_id).is_some_and(|s| s.needs_recreate)
+        if self
+            .surfaces
+            .get(&viewport_id)
+            .is_some_and(|s| s.needs_recreate)
             && let Err(err) = self.recreate_surface(viewport_id, window)
         {
             log::error!("Failed to recreate surface for {viewport_id:?}: {err}");
@@ -431,30 +543,54 @@ impl Painter {
             return vsync_sec;
         };
 
-        let mut render_queue_guard = RendererQueueGuard { queue: &render_state.queue, commands_submitted: false };
+        let mut render_queue_guard = RendererQueueGuard {
+            queue: &render_state.queue,
+            commands_submitted: false,
+        };
 
         let Some(surface_state) = self.surfaces.get_mut(&viewport_id) else {
             return vsync_sec;
         };
 
-        let mut encoder = render_state.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("encoder") });
+        let mut encoder =
+            render_state
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("encoder"),
+                });
 
         // Upload all resources for the GPU.
-        let screen_descriptor = renderer::ScreenDescriptor { size_in_pixels: [surface_state.width, surface_state.height], pixels_per_point };
+        let screen_descriptor = renderer::ScreenDescriptor {
+            size_in_pixels: [surface_state.width, surface_state.height],
+            pixels_per_point,
+        };
 
         let user_cmd_bufs = {
             let mut renderer = render_state.renderer.write();
             #[expect(clippy::iter_over_hash_type)] // Order doesn't matter here
             for (id, image_deltas) in textures_delta.set.drain() {
                 for image_delta in image_deltas {
-                    renderer.update_texture(&render_state.device, &render_state.queue, id, &image_delta);
+                    renderer.update_texture(
+                        &render_state.device,
+                        &render_state.queue,
+                        id,
+                        &image_delta,
+                    );
                 }
             }
 
-            renderer.update_buffers(&render_state.device, &render_state.queue, &mut encoder, clipped_primitives, &screen_descriptor)
+            renderer.update_buffers(
+                &render_state.device,
+                &render_state.queue,
+                &mut encoder,
+                clipped_primitives,
+                &screen_descriptor,
+            )
         };
 
-        *render_state.display_hdr_info.write() = surface_state.surface.display_hdr_info(&render_state.adapter);
+        *render_state.display_hdr_info.write() = surface_state
+            .surface
+            .display_hdr_info(&render_state.adapter);
 
         if surface_state.needs_reconfigure {
             Self::configure_surface(surface_state, render_state, &self.config.surface);
@@ -502,7 +638,9 @@ impl Painter {
             let renderer = render_state.renderer.read();
 
             let target_texture = if capture {
-                let capture_state = self.screen_capture_state.get_or_insert_with(|| CaptureState::new(&render_state.device, &output_frame.texture));
+                let capture_state = self.screen_capture_state.get_or_insert_with(|| {
+                    CaptureState::new(&render_state.device, &output_frame.texture)
+                });
                 capture_state.update(&render_state.device, &output_frame.texture);
 
                 &capture_state.texture
@@ -514,7 +652,9 @@ impl Painter {
             let (view, resolve_target) = (self.options.msaa_samples > 1)
                 .then_some(self.msaa_texture_view.get(&viewport_id))
                 .flatten()
-                .map_or((&target_view, None), |texture_view| (texture_view, Some(&target_view)));
+                .map_or((&target_view, None), |texture_view| {
+                    (texture_view, Some(&target_view))
+                });
 
             let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("egui_render"),
@@ -535,19 +675,28 @@ impl Painter {
                 depth_stencil_attachment: self.depth_texture_view.get(&viewport_id).map(|view| {
                     wgpu::RenderPassDepthStencilAttachment {
                         view,
-                        depth_ops: self.options.depth_stencil_format.is_some_and(|depth_stencil_format| depth_stencil_format.has_depth_aspect()).then_some(
-                            wgpu::Operations {
+                        depth_ops: self
+                            .options
+                            .depth_stencil_format
+                            .is_some_and(|depth_stencil_format| {
+                                depth_stencil_format.has_depth_aspect()
+                            })
+                            .then_some(wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(1.0),
                                 // It is very unlikely that the depth buffer is needed after egui finished rendering
                                 // so no need to store it. (this can improve performance on tiling GPUs like mobile chips or Apple Silicon)
                                 store: wgpu::StoreOp::Discard,
-                            },
-                        ),
+                            }),
                         stencil_ops: self
                             .options
                             .depth_stencil_format
-                            .is_some_and(|depth_stencil_format| depth_stencil_format.has_stencil_aspect())
-                            .then_some(wgpu::Operations { load: wgpu::LoadOp::Clear(0), store: wgpu::StoreOp::Discard }),
+                            .is_some_and(|depth_stencil_format| {
+                                depth_stencil_format.has_stencil_aspect()
+                            })
+                            .then_some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0),
+                                store: wgpu::StoreOp::Discard,
+                            }),
                     }
                 }),
                 timestamp_writes: None,
@@ -558,10 +707,18 @@ impl Painter {
             // Forgetting the pass' lifetime means that we are no longer compile-time protected from
             // runtime errors caused by accessing the parent encoder before the render pass is dropped.
             // Since we don't pass it on to the renderer, we should be perfectly safe against this mistake here!
-            renderer.render(&mut render_pass.forget_lifetime(), clipped_primitives, &screen_descriptor);
+            renderer.render(
+                &mut render_pass.forget_lifetime(),
+                clipped_primitives,
+                &screen_descriptor,
+            );
 
             if capture && let Some(capture_state) = &mut self.screen_capture_state {
-                capture_buffer = Some(capture_state.copy_textures(&render_state.device, &output_frame, &mut encoder));
+                capture_buffer = Some(capture_state.copy_textures(
+                    &render_state.device,
+                    &output_frame,
+                    &mut encoder,
+                ));
             }
         }
 
@@ -575,7 +732,9 @@ impl Painter {
             profiling::scope!("Queue::submit");
             // wgpu doesn't document where vsync can happen. Maybe here?
             let start = web_time::Instant::now();
-            render_state.queue.submit(core::iter::chain(user_cmd_bufs, [encoded]));
+            render_state
+                .queue
+                .submit(core::iter::chain(user_cmd_bufs, [encoded]));
             vsync_sec += start.elapsed().as_secs_f32();
         };
 
@@ -624,15 +783,21 @@ impl Painter {
         for (viewport_id, user_data, screenshot) in self.capture_rx.try_iter() {
             let screenshot = Arc::new(screenshot);
             for data in user_data {
-                events.push(Event::Screenshot { viewport_id, user_data: data, image: Arc::clone(&screenshot) });
+                events.push(Event::Screenshot {
+                    viewport_id,
+                    user_data: data,
+                    image: Arc::clone(&screenshot),
+                });
             }
         }
     }
 
     pub fn gc_viewports(&mut self, active_viewports: &ViewportIdSet) {
         self.surfaces.retain(|id, _| active_viewports.contains(id));
-        self.depth_texture_view.retain(|id, _| active_viewports.contains(id));
-        self.msaa_texture_view.retain(|id, _| active_viewports.contains(id));
+        self.depth_texture_view
+            .retain(|id, _| active_viewports.contains(id));
+        self.msaa_texture_view
+            .retain(|id, _| active_viewports.contains(id));
     }
 
     #[expect(clippy::needless_pass_by_ref_mut, clippy::unused_self)]
