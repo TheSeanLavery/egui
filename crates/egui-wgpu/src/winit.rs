@@ -755,7 +755,7 @@ impl Painter {
         if let Some(capture_buffer) = capture_buffer
             && let Some(screen_capture_state) = &mut self.screen_capture_state
         {
-            screen_capture_state.read_screen_rgba(
+            screen_capture_state.read_screen_rgba_with_hdr(
                 self.context.clone(),
                 capture_buffer,
                 capture_data,

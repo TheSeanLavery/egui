@@ -186,6 +186,18 @@ impl CaptureState {
         data: Vec<UserData>,
         tx: CaptureSender,
         viewport_id: ViewportId,
+    ) {
+        self.read_screen_rgba_with_hdr(ctx, buffer, data, tx, viewport_id, None);
+    }
+
+    /// Read the float framebuffer as well as the regular SDR screenshot.
+    pub fn read_screen_rgba_with_hdr(
+        &self,
+        ctx: egui::Context,
+        buffer: wgpu::Buffer,
+        data: Vec<UserData>,
+        tx: CaptureSender,
+        viewport_id: ViewportId,
         hdr_capture: Option<crate::HdrCaptureCallback>,
     ) {
         #[allow(clippy::allow_attributes, clippy::arc_with_non_send_sync)] // For wasm
