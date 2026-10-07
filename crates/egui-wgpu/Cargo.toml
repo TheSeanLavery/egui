@@ -57,7 +57,8 @@ fragile-send-sync-non-atomic-wasm = ["wgpu/fragile-send-sync-non-atomic-wasm"]
 macos-window-resize-jitter-fix = ["wgpu/metal"]
 
 [dependencies]
-epaint = { workspace = true, default-features = false, features = ["bytemuck"] }
+half = "2"
+epaint = { version = "=0.36.2", default-features = false, features = ["bytemuck"] }
 
 ahash.workspace = true
 bytemuck.workspace = true
@@ -71,5 +72,5 @@ wgpu = { workspace = true, features = ["wgsl"] }
 
 # Optional dependencies:
 
-egui = { workspace = true, optional = true, default-features = false }
+egui = { version = "=0.36.2", optional = true, default-features = false }
 winit = { workspace = true, optional = true, default-features = false }

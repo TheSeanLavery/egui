@@ -29,22 +29,14 @@ impl CaptureState {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("texture_copy"),
             layout: None,
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[] },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(surface_texture.format().into())],
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
             depth_stencil: None,
             multisample: MultisampleState::default(),
             multiview_mask: None,
@@ -53,22 +45,12 @@ impl CaptureState {
 
         let bind_group_layout = pipeline.get_bind_group_layout(0);
 
-        let (texture, padding, bind_group) =
-            Self::create_texture(device, surface_texture, &bind_group_layout);
+        let (texture, padding, bind_group) = Self::create_texture(device, surface_texture, &bind_group_layout);
 
-        Self {
-            padding,
-            texture,
-            pipeline,
-            bind_group,
-        }
+        Self { padding, texture, pipeline, bind_group }
     }
 
-    fn create_texture(
-        device: &wgpu::Device,
-        surface_texture: &wgpu::Texture,
-        layout: &BindGroupLayout,
-    ) -> (wgpu::Texture, BufferPadding, wgpu::BindGroup) {
+    fn create_texture(device: &wgpu::Device, surface_texture: &wgpu::Texture, layout: &BindGroupLayout) -> (wgpu::Texture, BufferPadding, wgpu::BindGroup) {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("egui_screen_capture_texture"),
             size: surface_texture.size(),
@@ -76,22 +58,17 @@ impl CaptureState {
             sample_count: surface_texture.sample_count(),
             dimension: surface_texture.dimension(),
             format: surface_texture.format(),
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
-        let padding = BufferPadding::new(surface_texture.width());
+        let padding = BufferPadding::new(surface_texture.width(), surface_texture.format());
 
         let view = texture.create_view(&Default::default());
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            }],
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
             label: None,
         });
 
@@ -101,8 +78,7 @@ impl CaptureState {
     /// Updates the [`CaptureState`] if the size of the surface texture has changed
     pub fn update(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) {
         if self.texture.size() != texture.size() {
-            let (new_texture, padding, bind_group) =
-                Self::create_texture(device, texture, &self.pipeline.get_bind_group_layout(0));
+            let (new_texture, padding, bind_group) = Self::create_texture(device, texture, &self.pipeline.get_bind_group_layout(0));
             self.texture = new_texture;
             self.padding = padding;
             self.bind_group = bind_group;
@@ -111,17 +87,8 @@ impl CaptureState {
 
     /// Handles copying from the [`CaptureState`] texture to the surface texture and the buffer.
     /// Pass the returned buffer to [`CaptureState::read_screen_rgba`] to read the data back to the cpu.
-    pub fn copy_textures(
-        &mut self,
-        device: &wgpu::Device,
-        output_frame: &wgpu::SurfaceTexture,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> wgpu::Buffer {
-        debug_assert_eq!(
-            self.texture.size(),
-            output_frame.texture.size(),
-            "Texture sizes must match, `CaptureState::update` was probably not called"
-        );
+    pub fn copy_textures(&mut self, device: &wgpu::Device, output_frame: &wgpu::SurfaceTexture, encoder: &mut wgpu::CommandEncoder) -> wgpu::Buffer {
+        debug_assert_eq!(self.texture.size(), output_frame.texture.size(), "Texture sizes must match, `CaptureState::update` was probably not called");
 
         // It would be more efficient to reuse the Buffer, e.g. via some kind of ring buffer, but
         // for most screenshot use cases this should be fine. When taking many screenshots (e.g. for a video)
@@ -142,11 +109,7 @@ impl CaptureState {
             tex.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
                 buffer: &buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padding.padded_bytes_per_row),
-                    rows_per_image: None,
-                },
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padding.padded_bytes_per_row), rows_per_image: None },
             },
             tex_extent,
         );
@@ -156,10 +119,7 @@ impl CaptureState {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &output_frame.texture.create_view(&Default::default()),
                 resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: StoreOp::Store,
-                },
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: StoreOp::Store },
                 depth_slice: None,
             })],
             depth_stencil_attachment: None,
@@ -186,6 +146,7 @@ impl CaptureState {
         data: Vec<UserData>,
         tx: CaptureSender,
         viewport_id: ViewportId,
+        hdr_capture: Option<crate::HdrCaptureCallback>,
     ) {
         #[allow(clippy::allow_attributes, clippy::arc_with_non_send_sync)] // For wasm
         let buffer = Arc::new(buffer);
@@ -195,12 +156,11 @@ impl CaptureState {
         let tex_extent = self.texture.size();
         let padding = self.padding;
         let to_rgba = match format {
+            wgpu::TextureFormat::Rgba16Float => [0, 1, 2, 3],
             wgpu::TextureFormat::Rgba8Unorm => [0, 1, 2, 3],
             wgpu::TextureFormat::Bgra8Unorm => [2, 1, 0, 3],
             _ => {
-                log::error!(
-                    "Screen can't be captured unless the surface format is Rgba8Unorm or Bgra8Unorm. Current surface format is {format:?}"
-                );
+                log::error!("Screen can't be captured unless the surface format is Rgba8Unorm or Bgra8Unorm. Current surface format is {format:?}");
                 return;
             }
         };
@@ -219,29 +179,40 @@ impl CaptureState {
                     return;
                 }
             };
+            let mut float_pixels = Vec::new();
             for padded_row in mapped_range.chunks(padding.padded_bytes_per_row as usize) {
                 let row = &padded_row[..padding.unpadded_bytes_per_row as usize];
+                if format == wgpu::TextureFormat::Rgba16Float {
+                    for color in row.chunks_exact(8) {
+                        let mut rgba = [0.0; 4];
+                        for (out, bytes) in rgba.iter_mut().zip(color.chunks_exact(2)) {
+                            *out = half::f16::from_bits(u16::from_le_bytes([bytes[0], bytes[1]])).to_f32();
+                        }
+                        pixels.push(epaint::Color32::from_rgba_premultiplied(
+                            (rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                            (rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                            (rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                            (rgba[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+                        ));
+                        if hdr_capture.is_some() {
+                            float_pixels.push(rgba);
+                        }
+                    }
+                    continue;
+                }
                 for color in row.chunks(4) {
-                    pixels.push(epaint::Color32::from_rgba_premultiplied(
-                        color[to_rgba[0]],
-                        color[to_rgba[1]],
-                        color[to_rgba[2]],
-                        color[to_rgba[3]],
-                    ));
+                    pixels.push(epaint::Color32::from_rgba_premultiplied(color[to_rgba[0]], color[to_rgba[1]], color[to_rgba[2]], color[to_rgba[3]]));
                 }
             }
             drop(mapped_range);
             buffer.unmap();
+            if !float_pixels.is_empty()
+                && let Some(sink) = hdr_capture
+            {
+                sink([tex_extent.width, tex_extent.height], float_pixels);
+            }
 
-            tx.send((
-                viewport_id,
-                data,
-                ColorImage::new(
-                    [tex_extent.width as usize, tex_extent.height as usize],
-                    pixels,
-                ),
-            ))
-            .ok();
+            tx.send((viewport_id, data, ColorImage::new([tex_extent.width as usize, tex_extent.height as usize], pixels))).ok();
             ctx.request_repaint();
         });
     }
@@ -254,14 +225,10 @@ struct BufferPadding {
 }
 
 impl BufferPadding {
-    fn new(width: u32) -> Self {
-        let bytes_per_pixel = core::mem::size_of::<u32>() as u32;
+    fn new(width: u32, format: wgpu::TextureFormat) -> Self {
+        let bytes_per_pixel = if format == wgpu::TextureFormat::Rgba16Float { 8 } else { 4 };
         let unpadded_bytes_per_row = width * bytes_per_pixel;
-        let padded_bytes_per_row =
-            wgpu::util::align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        Self {
-            unpadded_bytes_per_row,
-            padded_bytes_per_row,
-        }
+        let padded_bytes_per_row = wgpu::util::align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        Self { unpadded_bytes_per_row, padded_bytes_per_row }
     }
 }
